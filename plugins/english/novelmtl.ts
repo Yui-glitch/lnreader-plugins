@@ -8,7 +8,7 @@ class NovelMTL implements Plugin.PluginBase {
   name = 'NovelMTL';
   icon = 'src/en/favicon-96x96.png';
   site = 'https://novelmtl.app';
-  version = '1.0.0';
+  version = '1.0.1';
   private headers(referer?: string) {
     return {
       Referer: referer || this.site + '/',
