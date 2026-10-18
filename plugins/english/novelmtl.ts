@@ -51,7 +51,7 @@ class NovelMTL implements Plugin.PluginBase {
   async popularNovels(
     pageNo: number,
     { showLatestNovels }: Plugin.PopularNovelsOptions,
-  ): Promise<Plugin.NovelItem[]> {
+  ): Promise<Plugin.NovelItem[]> {     if (pageNo > 1) return [];
     const url = pageNo > 1 ? `${this.site}/?page=${pageNo}` : `${this.site}/`;
     const res = await fetchApi(url, { headers: this.headers() });
     const html = await res.text();
@@ -180,7 +180,7 @@ class NovelMTL implements Plugin.PluginBase {
   async searchNovels(
     searchTerm: string,
     pageNo: number,
-  ): Promise<Plugin.NovelItem[]> {
+  ): Promise<Plugin.NovelItem[]> {     if (pageNo > 1) return [];
     const url = `${this.site}/search?q=${encodeURIComponent(searchTerm)}${
       pageNo > 1 ? `&page=${pageNo}` : ''
     }`;
