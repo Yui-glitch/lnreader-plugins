@@ -3,12 +3,37 @@ import { Plugin } from '@/types/plugin';
 import { load as parseHTML } from 'cheerio';
 import { NovelStatus } from '@libs/novelStatus';
 import { defaultCover } from '@libs/defaultCover';
+import { FilterTypes, Filters } from '@libs/filterInputs';
+const GENRES = [
+  'Female-Lead', 'Male-Lead', 'BL', 'GL', 'Modern Romance', 'Xianxia', 'Wuxia',
+  'Xuanhuan', 'System', 'Urban Life', 'Rebirth', 'Transmigration',
+  'Asexual / Platonic', 'Book-Entering', 'Sweet Romance', 'Cultivation',
+  'Horror', 'Supernatural', 'Action', 'Adventure', 'Fantasy', 'Eastern Fantasy',
+  'Douluo', 'Harem', 'Game Lit / MMO', 'Comedy', 'School / Campus',
+  'Slice of Life', 'Otherworld / Isekai', 'Martial Arts', 'Historical Romance',
+  'Post-Apocalypse', 'Angst / Tragedy Romance', 'Marriage / Contract',
+  'Pursuit / Redemption', 'Political Intrigue', 'Military Strategy',
+  'Mystery / Detective', 'Villain Redemption', 'Workplace Romance',
+  'Entertainment / Idol', 'Everyday Life', 'Domestic Life', 'Coming-of-Age',
+  'Palace / Domestic Intrigue', 'Infinite Flow',
+];
 class NovelMTL implements Plugin.PluginBase {
   id = 'novelmtl';
   name = 'NovelMTL';
   icon = 'src/en/novelmtl/icon.png';
   site = 'https://novelmtl.app';
-  version = '1.0.3';
+  version = '1.1.0';
+  filters = {
+    genre: {
+      type: FilterTypes.Picker,
+      label: 'Genre',
+      value: '',
+      options: [
+        { label: 'All', value: '' },
+        ...GENRES.map(g => ({ label: g, value: g })),
+      ],
+    },
+  } satisfies Filters;
   private headers(referer?: string) {
     return {
       Referer: referer || this.site + '/',
@@ -21,41 +46,25 @@ class NovelMTL implements Plugin.PluginBase {
     const i = t.search(/[\u3400-\u9fff\uf900-\ufaff]/);
     return (i > 0 ? t.slice(0, i) : t).trim();
   }
-  private parseList(html: string): Plugin.NovelItem[] {
-    const $ = parseHTML(html);
-    const seen = new Set<string>();
-    const novels: Plugin.NovelItem[] = [];
-    $('a[href*="/novel/"]').each((_, el) => {
-      const a = $(el);
-      const href = (a.attr('href') || '').replace(this.site, '');
-      if (!/^\/novel\/[^/]+\/?$/.test(href) || /read\/\d+/.test(href)) return;
-      const path = href.replace(/\/$/, '');
-      if (seen.has(path)) return;
-      const name = this.cleanTitle(a.text());
-      if (!name || /^read more$/i.test(name)) return;
-      seen.add(path);
-      const img = a.find('img').first();
-      const cover = img.attr('data-src') || img.attr('src') || undefined;
-      novels.push({
-        name,
-        path,
-        cover: cover
-          ? cover.startsWith('http')
-            ? cover
-            : this.site + cover
-          : defaultCover,
-      });
-    });
-    return novels;
+  private toNovels(items: any[]): Plugin.NovelItem[] {
+    return (items || []).map(i => ({
+      name: String(i.title || '').trim(),
+      path: `/novel/${i.slug}`,
+      cover: defaultCover,
+    }));
   }
   async popularNovels(
     pageNo: number,
-    { showLatestNovels }: Plugin.PopularNovelsOptions,
-  ): Promise<Plugin.NovelItem[]> {     if (pageNo > 1) return [];
-    const url = pageNo > 1 ? `${this.site}/?page=${pageNo}` : `${this.site}/`;
+    { filters }: Plugin.PopularNovelsOptions<typeof this.filters>,
+  ): Promise<Plugin.NovelItem[]> {
+    const params: string[] = [];
+    if (pageNo > 1) params.push(`cursor=${(pageNo - 1) * 20}`);
+    const genre = filters?.genre?.value;
+    if (genre) params.push(`genres=${encodeURIComponent(String(genre))}`);
+    const url = `${this.site}/api/novels${params.length ? '?' + params.join('&') : ''}`;
     const res = await fetchApi(url, { headers: this.headers() });
-    const html = await res.text();
-    return this.parseList(html);
+    const json = await res.json();
+    return this.toNovels(json.items);
   }
   async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
     const url = this.site + novelPath;
@@ -70,15 +79,6 @@ class NovelMTL implements Plugin.PluginBase {
       ),
       cover: defaultCover,
     };
-    const cover = $(
-      'img[src*="cover"], img[data-src*="cover"], .cover img, .book img',
-    ).first();
-    const coverSrc = cover.attr('data-src') || cover.attr('src');
-    if (coverSrc) {
-      novel.cover = coverSrc.startsWith('http')
-        ? coverSrc
-        : this.site + coverSrc;
-    }
     novel.author = (
       $('meta[name="author"]').attr('content') ||
       $('meta[property="book:author"]').attr('content') ||
@@ -180,13 +180,14 @@ class NovelMTL implements Plugin.PluginBase {
   async searchNovels(
     searchTerm: string,
     pageNo: number,
-  ): Promise<Plugin.NovelItem[]> {     if (pageNo > 1) return [];
-    const url = `${this.site}/search?q=${encodeURIComponent(searchTerm)}${
-      pageNo > 1 ? `&page=${pageNo}` : ''
+  ): Promise<Plugin.NovelItem[]> {
+    const offset = (pageNo - 1) * 20;
+    const url = `${this.site}/api/novels/search?q=${encodeURIComponent(searchTerm)}${
+      offset > 0 ? `&offset=${offset}` : ''
     }`;
     const res = await fetchApi(url, { headers: this.headers() });
-    const html = await res.text();
-    return this.parseList(html);
+    const json = await res.json();
+    return this.toNovels(json.items);
   }
 }
 export default new NovelMTL();
