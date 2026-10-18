@@ -6,9 +6,9 @@ import { defaultCover } from '@libs/defaultCover';
 class NovelMTL implements Plugin.PluginBase {
   id = 'novelmtl';
   name = 'NovelMTL';
-  icon = 'src/en/favicon-96x96.png';
+  icon = 'src/en/novelmtl/icon.png';
   site = 'https://novelmtl.app';
-  version = '1.0.2';
+  version = '1.0.3';
   private headers(referer?: string) {
     return {
       Referer: referer || this.site + '/',
