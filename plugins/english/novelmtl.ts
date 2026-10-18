@@ -6,7 +6,7 @@ import { defaultCover } from '@libs/defaultCover';
 class NovelMTL implements Plugin.PluginBase {
   id = 'novelmtl';
   name = 'NovelMTL';
-  icon = 'src/en/novelmtl/icon.png';
+  icon = 'src/en/favicon-96x96.png';
   site = 'https://novelmtl.app';
   version = '1.0.0';
   private headers(referer?: string) {
