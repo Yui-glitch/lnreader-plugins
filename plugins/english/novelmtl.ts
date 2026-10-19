@@ -22,7 +22,7 @@ class NovelMTL implements Plugin.PluginBase {
   name = 'NovelMTL';
   icon = 'src/en/novelmtl/icon.png';
   site = 'https://novelmtl.app';
-  version = '1.1.0';
+  version = '1.1.1';
   filters = {
     genre: {
       type: FilterTypes.Picker,
@@ -138,6 +138,28 @@ class NovelMTL implements Plugin.PluginBase {
     return novel;
   }
   async parseChapter(chapterPath: string): Promise<string> {
+        const m = chapterPath.match(/\/novel\/([^/]+)\/read\/(\d+)/);
+    if (m) {
+      try {
+        const r = await fetchApi(
+          `${this.site}/api/novels/${m[1]}/pages/${m[2]}`,
+          { headers: this.headers(this.site + '/novel/' + m[1]) },
+        );
+        const j = await r.json();
+        const c: string = String(j.content || '');
+        if (c.trim()) {
+          if (/<p[\s>]/i.test(c)) return c;
+          const esc = (s: string) =>
+            s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          return c
+            .split(/\r?\n+/)
+            .map(s => s.trim())
+            .filter(Boolean)
+            .map(s => `<p>${esc(s)}</p>`)
+            .join('\n');
+        }
+      } catch (e) {}
+    }
     const novelPath = chapterPath.replace(/\/read\/\d+.*$/, '');
     const res = await fetchApi(this.site + chapterPath, {
       headers: this.headers(this.site + novelPath),
