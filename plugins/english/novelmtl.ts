@@ -22,7 +22,7 @@ class NovelMTL implements Plugin.PluginBase {
   name = 'NovelMTL';
   icon = 'src/en/novelmtl/icon.png';
   site = 'https://novelmtl.app';
-  version = '1.1.1';
+  version = '1.1.2';
   filters = {
     genre: {
       type: FilterTypes.Picker,
@@ -41,10 +41,27 @@ class NovelMTL implements Plugin.PluginBase {
         'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36',
     };
   }
+  private async getHtml(url: string): Promise<string> {
+    let last = '';
+    for (let i = 0; i < 3; i++) {
+      try {
+        const res = await fetchApi(url, { headers: this.headers() });
+        const txt = await res.text();
+        if (res.ok && txt.length > 1000 && !/Page Not Found \(404\)/i.test(txt)) {
+          return txt;
+        }
+        last = 'HTTP ' + res.status;
+      } catch (e) {
+        last = String(e);
+      }
+      await new Promise(r => setTimeout(r, 700 * (i + 1)));
+    }
+    throw new Error('NovelMTL could not load the page (' + last + '). Try again.');
+    }
   private cleanTitle(raw: string): string {
     const t = raw.replace(/\s+/g, ' ').trim();
     const i = t.search(/[\u3400-\u9fff\uf900-\ufaff]/);
-    return (i > 0 ? t.slice(0, i) : t).trim();
+        return (i > 0 ? t.slice(0, i) : t).replace(/[\s(（\[【]+$/, '').trim();
   }
   private toNovels(items: any[]): Plugin.NovelItem[] {
     return (items || []).map(i => ({
@@ -68,8 +85,7 @@ class NovelMTL implements Plugin.PluginBase {
   }
   async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
     const url = this.site + novelPath;
-    const res = await fetchApi(url, { headers: this.headers() });
-    const html = await res.text();
+    const html = await this.getHtml(url);
     const $ = parseHTML(html);
     const novel: Plugin.SourceNovel = {
       path: novelPath,
@@ -98,6 +114,25 @@ class NovelMTL implements Plugin.PluginBase {
       $('meta[name="description"]').attr('content') ||
       ''
     ).trim();
+        const key = (novel.summary || '')
+      .replace(/(…|\.\.\.)\s*$/, '')
+      .trim()
+      .slice(0, 50);
+    if (key) {
+      let best = '';
+      $('p, div, span').each((_, el) => {
+        const t = $(el).text().replace(/\s+/g, ' ').trim();
+        if (
+          t.startsWith(key) &&
+          t.length >= (novel.summary || '').length - 3 &&
+          t.length < 3000 &&
+          (!best || t.length < best.length)
+        ) {
+          best = t;
+        }
+      });
+      if (best) novel.summary = best;
+    }
     const titleTag =
       $('title').text() + ' ' + ($('meta[name="keywords"]').attr('content') || '');
     novel.status = /\bCompleted\b/i.test(titleTag)
