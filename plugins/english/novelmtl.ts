@@ -22,7 +22,7 @@ class NovelMTL implements Plugin.PluginBase {
   name = 'NovelMTL';
   icon = 'src/en/novelmtl/icon.png';
   site = 'https://novelmtl.app';
-  version = '1.1.5';
+  version = '1.1.6';
   filters = {
     genre: {
       type: FilterTypes.Picker,
@@ -118,7 +118,9 @@ class NovelMTL implements Plugin.PluginBase {
         name: 'DEBUG ERROR',
         cover: defaultCover,
         summary: String(e),
-        chapters: [],
+                chapters: [
+          { name: 'see summary', path: novelPath + '/read/1', chapterNumber: 1 },
+        ],
       };
     }
     }
