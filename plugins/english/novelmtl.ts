@@ -22,7 +22,7 @@ class NovelMTL implements Plugin.PluginBase {
   name = 'NovelMTL';
   icon = 'src/en/novelmtl/icon.png';
   site = 'https://novelmtl.app';
-  version = '1.1.3';
+  version = '1.1.4';
   filters = {
     genre: {
       type: FilterTypes.Picker,
@@ -42,26 +42,23 @@ class NovelMTL implements Plugin.PluginBase {
     };
   }
   private async getHtml(url: string): Promise<string> {
-    let last = '';
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
       try {
         const res = await fetchApi(url, { headers: this.headers() });
         const txt = await res.text();
-        if (res.ok && txt.length > 1000 && !/Page Not Found \(404\)/i.test(txt)) {
+        const head = txt.slice(0, 3000);
+        if (res.ok && txt.length > 1000 && !/Page Not Found|Novel not found/i.test(head)) {
           return txt;
         }
-        last = 'HTTP ' + res.status;
-      } catch (e) {
-        last = String(e);
-      }
-      await new Promise(r => setTimeout(r, 700 * (i + 1)));
+      } catch (e) {}
+      await new Promise(r => setTimeout(r, 600));
     }
-        return '';
-    }
+    return '';
+  }
   private cleanTitle(raw: string): string {
     const t = raw.replace(/\s+/g, ' ').trim();
     const i = t.search(/[\u3400-\u9fff\uf900-\ufaff]/);
-        return (i > 0 ? t.slice(0, i) : t).replace(/[\s(（\[【]+$/, '').trim();
+    return (i > 0 ? t.slice(0, i) : t).replace(/[\s(（\[【]+$/, '').trim();
   }
   private toNovels(items: any[]): Plugin.NovelItem[] {
     return (items || []).map(i => ({
@@ -69,6 +66,35 @@ class NovelMTL implements Plugin.PluginBase {
       path: `/novel/${i.slug}`,
       cover: defaultCover,
     }));
+  }
+  private async fromApi(novelPath: string): Promise<Plugin.SourceNovel> {
+    const slugId = novelPath.replace(/^\/novel\//, '').replace(/\/$/, '');
+    const q = slugId.replace(/-[a-z0-9]{8,12}$/, '').replace(/-/g, ' ');
+    const r = await fetchApi(
+      `${this.site}/api/novels/search?q=${encodeURIComponent(q)}`,
+      { headers: this.headers() },
+    );
+    const j = await r.json();
+    const it = (j.items || []).find((x: any) => x.slug === slugId);
+    if (!it) throw new Error('NovelMTL: this novel is not available on the site.');
+    const chapters: Plugin.ChapterItem[] = [];
+    for (let n = 1; n <= (it.page_count || 0); n++) {
+      chapters.push({
+        name: `Chapter ${n}`,
+        path: `/novel/${slugId}/read/${n}`,
+        chapterNumber: n,
+      });
+    }
+    return {
+      path: novelPath,
+      name: this.cleanTitle(String(it.title || '')) || 'Untitled',
+      cover: defaultCover,
+      author: it.author || '',
+      genres: Array.isArray(it.genres) ? it.genres.join(',') : '',
+      summary: it.description || '',
+      status: NovelStatus.Unknown,
+      chapters,
+    };
   }
   async popularNovels(
     pageNo: number,
@@ -86,35 +112,7 @@ class NovelMTL implements Plugin.PluginBase {
   async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
     const url = this.site + novelPath;
     const html = await this.getHtml(url);
-        if (!html) {
-      const slugId = novelPath.replace(/^\/novel\//, '').replace(/\/$/, '');
-      const q = slugId.replace(/-[a-z0-9]{8,12}$/, '').replace(/-/g, ' ');
-      const r = await fetchApi(
-        `${this.site}/api/novels/search?q=${encodeURIComponent(q)}`,
-        { headers: this.headers() },
-      );
-      const j = await r.json();
-      const it = (j.items || []).find((x: any) => x.slug === slugId);
-      if (!it) throw new Error('NovelMTL: this novel is not available on the site.');
-      const chapters: Plugin.ChapterItem[] = [];
-      for (let n = 1; n <= (it.page_count || 0); n++) {
-        chapters.push({
-          name: `Chapter ${n}`,
-          path: `/novel/${slugId}/read/${n}`,
-          chapterNumber: n,
-        });
-      }
-      return {
-        path: novelPath,
-        name: this.cleanTitle(String(it.title || '')),
-        cover: defaultCover,
-        author: it.author || '',
-        genres: Array.isArray(it.genres) ? it.genres.join(',') : '',
-        summary: it.description || '',
-        status: NovelStatus.Unknown,
-        chapters,
-      };
-        }
+    if (!html) return this.fromApi(novelPath);
     const $ = parseHTML(html);
     const novel: Plugin.SourceNovel = {
       path: novelPath,
@@ -143,7 +141,7 @@ class NovelMTL implements Plugin.PluginBase {
       $('meta[name="description"]').attr('content') ||
       ''
     ).trim();
-        const key = (novel.summary || '')
+    const key = (novel.summary || '')
       .replace(/(…|\.\.\.)\s*$/, '')
       .trim()
       .slice(0, 50);
@@ -196,72 +194,39 @@ class NovelMTL implements Plugin.PluginBase {
         chapterNumber: n,
       });
     }
+    if (!chapters.length || !novel.name) return this.fromApi(novelPath);
     novel.chapters = chapters.sort(
       (a, b) => (a.chapterNumber || 0) - (b.chapterNumber || 0),
     );
     return novel;
   }
   async parseChapter(chapterPath: string): Promise<string> {
-        const m = chapterPath.match(/\/novel\/([^/]+)\/read\/(\d+)/);
+    const m = chapterPath.match(/\/novel\/([^/]+)\/read\/(\d+)/);
     if (m) {
-      try {
-        const r = await fetchApi(
-          `${this.site}/api/novels/${m[1]}/pages/${m[2]}`,
-          { headers: this.headers(this.site + '/novel/' + m[1]) },
-        );
-        const j = await r.json();
-        const c: string = String(j.content || '');
-        if (c.trim()) {
-          if (/<p[\s>]/i.test(c)) return c;
-          const esc = (s: string) =>
-            s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          return c
-            .split(/\r?\n+/)
-            .map(s => s.trim())
-            .filter(Boolean)
-            .map(s => `<p>${esc(s)}</p>`)
-            .join('\n');
-        }
-      } catch (e) {}
-    }
-    const novelPath = chapterPath.replace(/\/read\/\d+.*$/, '');
-    const res = await fetchApi(this.site + chapterPath, {
-      headers: this.headers(this.site + novelPath),
-    });
-    const html = await res.text();
-    const $ = parseHTML(html);
-    const selectors = [
-      '#chapter-content',
-      '.chapter-content',
-      '#content',
-      '.reading-content',
-      '.chapter-body',
-      '.text-left',
-      'article',
-      'main',
-    ];
-    let container = $();
-    for (const s of selectors) {
-      const el = $(s).first();
-      if (el.length && el.text().trim().length > 200) {
-        container = el;
-        break;
+      for (let i = 0; i < 3; i++) {
+        try {
+          const r = await fetchApi(
+            `${this.site}/api/novels/${m[1]}/pages/${m[2]}`,
+            { headers: this.headers(this.site + '/novel/' + m[1]) },
+          );
+          const j = await r.json();
+          const c: string = String(j.content || '');
+          if (c.trim()) {
+            if (/<p[\s>]/i.test(c)) return c;
+            const esc = (s: string) =>
+              s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return c
+              .split(/\r?\n+/)
+              .map(s => s.trim())
+              .filter(Boolean)
+              .map(s => `<p>${esc(s)}</p>`)
+              .join('\n');
+          }
+        } catch (e) {}
+        await new Promise(r => setTimeout(r, 500));
       }
     }
-    if (!container.length) container = $('body');
-    container
-      .find(
-        'script, style, nav, header, footer, iframe, ins, button, .ads, .ad, [class*="advert"], [id*="google"]',
-      )
-      .remove();
-    const paras = container.find('p');
-    if (paras.length > 3) {
-      return paras
-        .map((_, p) => `<p>${$(p).html()}</p>`)
-        .get()
-        .join('\n');
-    }
-    return container.html() || '';
+    throw new Error('NovelMTL: could not load this chapter. Try again.');
   }
   async searchNovels(
     searchTerm: string,
