@@ -206,17 +206,7 @@ class NovelMTL implements Plugin.PluginBase {
     const json = await res.json();
     return this.toNovels(json.items);
   }
-  async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
-        if (novelPath.includes('hmm-face-slaps')) {
-      return {
-        path: novelPath,
-        name: 'TEST NOVEL',
-        cover: defaultCover,
-        chapters: [
-          { name: 'Chapter 1', path: novelPath + '/read/1', chapterNumber: 1 },
-        ],
-      };
-        }
+  async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> { 
         const [api, html] = await Promise.all([
       this.fromApi(novelPath).catch(() => null),
       Promise.race([
