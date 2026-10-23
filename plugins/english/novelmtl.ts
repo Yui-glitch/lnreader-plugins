@@ -22,7 +22,7 @@ class NovelMTL implements Plugin.PluginBase {
   name = 'NovelMTL';
   icon = 'src/en/novelmtl/icon.png';
   site = 'https://novelmtl.app';
-  version = '1.2.0';
+  version = '1.2.1';
   filters = {
     genre: {
       type: FilterTypes.Picker,
@@ -207,9 +207,12 @@ class NovelMTL implements Plugin.PluginBase {
     return this.toNovels(json.items);
   }
   async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
-    const [api, html] = await Promise.all([
+        const [api, html] = await Promise.all([
       this.fromApi(novelPath).catch(() => null),
-      this.getHtml(this.site + novelPath),
+      Promise.race([
+        this.getHtml(this.site + novelPath),
+        new Promise<string>(r => setTimeout(() => r(''), 3500)),
+      ]),
     ]);
     const page = html ? this.fromHtml(novelPath, html) : null;
     if (page && page.chapters && page.chapters.length) {
