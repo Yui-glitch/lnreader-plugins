@@ -22,7 +22,7 @@ class NovelMTL implements Plugin.PluginBase {
   name = 'NovelMTL';
   icon = 'src/en/novelmtl/icon.png';
   site = 'https://novelmtl.app';
-  version = '1.1.4';
+  version = '1.1.5';
   filters = {
     genre: {
       type: FilterTypes.Picker,
@@ -109,7 +109,20 @@ class NovelMTL implements Plugin.PluginBase {
     const json = await res.json();
     return this.toNovels(json.items);
   }
-  async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
+    async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
+    try {
+      return await this.parseNovelInner(novelPath);
+    } catch (e) {
+      return {
+        path: novelPath,
+        name: 'DEBUG ERROR',
+        cover: defaultCover,
+        summary: String(e),
+        chapters: [],
+      };
+    }
+    }
+  async parseNovelInner(novelPath: string): Promise<Plugin.SourceNovel> {
     const url = this.site + novelPath;
     const html = await this.getHtml(url);
     if (!html) return this.fromApi(novelPath);
