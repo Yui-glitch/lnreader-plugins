@@ -22,7 +22,7 @@ class NovelMTL implements Plugin.PluginBase {
   name = 'NovelMTL';
   icon = 'src/en/novelmtl/icon.png';
   site = 'https://novelmtl.app';
-  version = '1.1.6';
+  version = '1.2.0';
   filters = {
     genre: {
       type: FilterTypes.Picker,
@@ -41,18 +41,22 @@ class NovelMTL implements Plugin.PluginBase {
         'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36',
     };
   }
+  private clean(s: any, max = 3000): string {
+    return String(s || '')
+      .replace(/[\u0000-\u001F\u007F]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, max);
+  }
   private async getHtml(url: string): Promise<string> {
-    for (let i = 0; i < 2; i++) {
-      try {
-        const res = await fetchApi(url, { headers: this.headers() });
-        const txt = await res.text();
-        const head = txt.slice(0, 3000);
-        if (res.ok && txt.length > 1000 && !/Page Not Found|Novel not found/i.test(head)) {
-          return txt;
-        }
-      } catch (e) {}
-      await new Promise(r => setTimeout(r, 600));
-    }
+    try {
+      const res = await fetchApi(url, { headers: this.headers() });
+      const txt = await res.text();
+      const head = txt.slice(0, 3000);
+      if (res.ok && txt.length > 1000 && !/Page Not Found|Novel not found/i.test(head)) {
+        return txt;
+      }
+    } catch (e) {}
     return '';
   }
   private cleanTitle(raw: string): string {
@@ -67,18 +71,21 @@ class NovelMTL implements Plugin.PluginBase {
       cover: defaultCover,
     }));
   }
-  private async fromApi(novelPath: string): Promise<Plugin.SourceNovel> {
+  private async fromApi(novelPath: string): Promise<Plugin.SourceNovel | null> {
     const slugId = novelPath.replace(/^\/novel\//, '').replace(/\/$/, '');
     const q = slugId.replace(/-[a-z0-9]{8,12}$/, '').replace(/-/g, ' ');
-    const r = await fetchApi(
-      `${this.site}/api/novels/search?q=${encodeURIComponent(q)}`,
-      { headers: this.headers() },
-    );
-    const j = await r.json();
-    const it = (j.items || []).find((x: any) => x.slug === slugId);
-    if (!it) throw new Error('NovelMTL: this novel is not available on the site.');
+    let it: any = null;
+    for (let off = 0; off <= 20 && !it; off += 20) {
+      const r = await fetchApi(
+        `${this.site}/api/novels/search?q=${encodeURIComponent(q)}${off ? '&offset=' + off : ''}`,
+        { headers: this.headers() },
+      );
+      const j = await r.json();
+      it = (j.items || []).find((x: any) => x.slug === slugId) || null;
+    }
+    if (!it) return null;
     const chapters: Plugin.ChapterItem[] = [];
-    for (let n = 1; n <= (it.page_count || 0); n++) {
+    for (let n = 1; n <= (Number(it.page_count) || 0); n++) {
       chapters.push({
         name: `Chapter ${n}`,
         path: `/novel/${slugId}/read/${n}`,
@@ -87,47 +94,18 @@ class NovelMTL implements Plugin.PluginBase {
     }
     return {
       path: novelPath,
-      name: this.cleanTitle(String(it.title || '')) || 'Untitled',
+      name: this.clean(this.cleanTitle(String(it.title || '')), 300) || 'Untitled',
       cover: defaultCover,
-      author: it.author || '',
-      genres: Array.isArray(it.genres) ? it.genres.join(',') : '',
-      summary: it.description || '',
+      author: this.clean(it.author, 200),
+      genres: Array.isArray(it.genres)
+        ? it.genres.map((g: any) => this.clean(g, 60)).filter(Boolean).join(',')
+        : '',
+      summary: this.clean(it.description),
       status: NovelStatus.Unknown,
       chapters,
     };
   }
-  async popularNovels(
-    pageNo: number,
-    { filters }: Plugin.PopularNovelsOptions<typeof this.filters>,
-  ): Promise<Plugin.NovelItem[]> {
-    const params: string[] = [];
-    if (pageNo > 1) params.push(`cursor=${(pageNo - 1) * 20}`);
-    const genre = filters?.genre?.value;
-    if (genre) params.push(`genres=${encodeURIComponent(String(genre))}`);
-    const url = `${this.site}/api/novels${params.length ? '?' + params.join('&') : ''}`;
-    const res = await fetchApi(url, { headers: this.headers() });
-    const json = await res.json();
-    return this.toNovels(json.items);
-  }
-    async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
-    try {
-      return await this.parseNovelInner(novelPath);
-    } catch (e) {
-      return {
-        path: novelPath,
-        name: 'DEBUG ERROR',
-        cover: defaultCover,
-        summary: String(e),
-                chapters: [
-          { name: 'see summary', path: novelPath + '/read/1', chapterNumber: 1 },
-        ],
-      };
-    }
-    }
-  async parseNovelInner(novelPath: string): Promise<Plugin.SourceNovel> {
-    const url = this.site + novelPath;
-    const html = await this.getHtml(url);
-    if (!html) return this.fromApi(novelPath);
+  private fromHtml(novelPath: string, html: string): Plugin.SourceNovel | null {
     const $ = parseHTML(html);
     const novel: Plugin.SourceNovel = {
       path: novelPath,
@@ -209,11 +187,37 @@ class NovelMTL implements Plugin.PluginBase {
         chapterNumber: n,
       });
     }
-    if (!chapters.length || !novel.name) return this.fromApi(novelPath);
+    if (!chapters.length || !novel.name) return null;
     novel.chapters = chapters.sort(
       (a, b) => (a.chapterNumber || 0) - (b.chapterNumber || 0),
     );
     return novel;
+  }
+  async popularNovels(
+    pageNo: number,
+    { filters }: Plugin.PopularNovelsOptions<typeof this.filters>,
+  ): Promise<Plugin.NovelItem[]> {
+    const params: string[] = [];
+    if (pageNo > 1) params.push(`cursor=${(pageNo - 1) * 20}`);
+    const genre = filters?.genre?.value;
+    if (genre) params.push(`genres=${encodeURIComponent(String(genre))}`);
+    const url = `${this.site}/api/novels${params.length ? '?' + params.join('&') : ''}`;
+    const res = await fetchApi(url, { headers: this.headers() });
+    const json = await res.json();
+    return this.toNovels(json.items);
+  }
+  async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
+    const [api, html] = await Promise.all([
+      this.fromApi(novelPath).catch(() => null),
+      this.getHtml(this.site + novelPath),
+    ]);
+    const page = html ? this.fromHtml(novelPath, html) : null;
+    if (page && page.chapters && page.chapters.length) {
+      if (api && !page.author) page.author = api.author;
+      return page;
+    }
+    if (api) return api;
+    throw new Error('NovelMTL: this novel is not available on the site.');
   }
   async parseChapter(chapterPath: string): Promise<string> {
     const m = chapterPath.match(/\/novel\/([^/]+)\/read\/(\d+)/);
