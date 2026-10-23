@@ -22,7 +22,7 @@ class NovelMTL implements Plugin.PluginBase {
   name = 'NovelMTL';
   icon = 'src/en/novelmtl/icon.png';
   site = 'https://novelmtl.app';
-  version = '1.2.2';
+  version = '1.2.3';
   filters = {
     genre: {
       type: FilterTypes.Picker,
