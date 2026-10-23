@@ -22,7 +22,7 @@ class NovelMTL implements Plugin.PluginBase {
   name = 'NovelMTL';
   icon = 'src/en/novelmtl/icon.png';
   site = 'https://novelmtl.app';
-  version = '1.1.2';
+  version = '1.1.3';
   filters = {
     genre: {
       type: FilterTypes.Picker,
@@ -56,7 +56,7 @@ class NovelMTL implements Plugin.PluginBase {
       }
       await new Promise(r => setTimeout(r, 700 * (i + 1)));
     }
-    throw new Error('NovelMTL could not load the page (' + last + '). Try again.');
+        return '';
     }
   private cleanTitle(raw: string): string {
     const t = raw.replace(/\s+/g, ' ').trim();
@@ -86,6 +86,35 @@ class NovelMTL implements Plugin.PluginBase {
   async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
     const url = this.site + novelPath;
     const html = await this.getHtml(url);
+        if (!html) {
+      const slugId = novelPath.replace(/^\/novel\//, '').replace(/\/$/, '');
+      const q = slugId.replace(/-[a-z0-9]{8,12}$/, '').replace(/-/g, ' ');
+      const r = await fetchApi(
+        `${this.site}/api/novels/search?q=${encodeURIComponent(q)}`,
+        { headers: this.headers() },
+      );
+      const j = await r.json();
+      const it = (j.items || []).find((x: any) => x.slug === slugId);
+      if (!it) throw new Error('NovelMTL: this novel is not available on the site.');
+      const chapters: Plugin.ChapterItem[] = [];
+      for (let n = 1; n <= (it.page_count || 0); n++) {
+        chapters.push({
+          name: `Chapter ${n}`,
+          path: `/novel/${slugId}/read/${n}`,
+          chapterNumber: n,
+        });
+      }
+      return {
+        path: novelPath,
+        name: this.cleanTitle(String(it.title || '')),
+        cover: defaultCover,
+        author: it.author || '',
+        genres: Array.isArray(it.genres) ? it.genres.join(',') : '',
+        summary: it.description || '',
+        status: NovelStatus.Unknown,
+        chapters,
+      };
+        }
     const $ = parseHTML(html);
     const novel: Plugin.SourceNovel = {
       path: novelPath,
